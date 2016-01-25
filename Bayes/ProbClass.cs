@@ -15,7 +15,7 @@ namespace Bayes
         public ProbClass ()
         {
             classLabel = "";
-            prob = 0;
+            prob = double.MinValue;
             
         }
         public ProbClass (string ClassLabel, double Prob)

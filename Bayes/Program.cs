@@ -44,8 +44,9 @@ namespace Bayes
                     }
                     //Calculate prob of each word given a class 
                     prob = (wordcount + condProbDelta) / (DocsPerClass + (condProbDelta*2));
+                    double probN = ((DocsPerClass-wordcount) + condProbDelta) / (DocsPerClass + (condProbDelta * 2));
                     double logProb = System.Math.Log10(prob);
-                    double logProbN = System.Math.Log10(1 - prob);
+                    double logProbN = System.Math.Log10(probN);
                     FeatureClassProb.Add(featureClass, logProb);
                     FeatureClassProb.Add(featureClass + "_N" , logProbN);
                 }
@@ -76,7 +77,7 @@ namespace Bayes
                                 Docprob += (FeatureClassProb[featureClass+"_N"]);
                         }
                         Docprob += classPrior[genClass];
-                        if(Docprob < maxProbClass.prob)
+                        if(Docprob > maxProbClass.prob)
                         {
                             maxProbClass.classLabel = genClass;
                             maxProbClass.prob = Docprob;
