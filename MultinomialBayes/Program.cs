@@ -5,7 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Bayes
+namespace MultinomialBayes
 {
     class Program
     {
@@ -20,14 +20,14 @@ namespace Bayes
             int Docid = 0;
             Dictionary<string, bool> Vocab = new Dictionary<string, bool>();
             //read docs
-            Dictionary<string, List<Document>> TrainingDocs = ReadData(TrainingDataPath, ref Docid,true,ref Vocab);
+            Dictionary<string, List<Document>> TrainingDocs = ReadData(TrainingDataPath, ref Docid, true, ref Vocab);
             double totalTrainingDocs = Docid;
             double DocsPerClass = 0;
             string featureClass;
             double prob = 0;
             Dictionary<string, double> classPrior = new Dictionary<string, double>();
             Dictionary<string, double> FeatureClassProb = new Dictionary<string, double>();
-            int totalClass =TrainingDocs.Count;
+            int totalClass = TrainingDocs.Count;
             //calculating Priors
             foreach (var classLabel in TrainingDocs)
             {
@@ -35,6 +35,17 @@ namespace Bayes
                 //calculate Prior
                 prob = System.Math.Log10((DocsPerClass + classPriorDelta) / (totalTrainingDocs + (classPriorDelta * totalClass)));
                 classPrior.Add(classLabel.Key, prob);
+                int totalWordsPerClass = 0;
+                //get total word count of all words in doc to calculate prob
+                foreach (var word in Vocab)
+                {
+                    foreach (var doc in classLabel.Value)
+                    {
+                        if (doc.WordCount.ContainsKey(word.Key))
+                            totalWordsPerClass += doc.WordCount[word.Key];
+                    }
+                }
+
                 foreach (var word in Vocab)
                 {
                     featureClass = classLabel.Key + "_" + word.Key;
@@ -42,34 +53,24 @@ namespace Bayes
                     foreach (var doc in classLabel.Value)
                     {
                         if (doc.WordCount.ContainsKey(word.Key))
-                            wordcount++;
+                            wordcount+=doc.WordCount[word.Key];
                     }
                     //Calculate prob of each word given a class 
-                    prob = (wordcount + condProbDelta) / (DocsPerClass + (condProbDelta*2));
-                    double probN = ((DocsPerClass-wordcount) + condProbDelta) / (DocsPerClass + (condProbDelta * 2));
+                    prob = (wordcount + condProbDelta) / (totalWordsPerClass + (condProbDelta * Vocab.Count));
                     double logProb = System.Math.Log10(prob);
-                    double logProbN = System.Math.Log10(probN);
                     FeatureClassProb.Add(featureClass, logProb);
-                    FeatureClassProb.Add(featureClass + "_N" , logProbN);
+
                 }
-                
+
             }
-            //Classifying training Docs
-            ClassifyandWrite (sysOutput, TrainingDocs,Vocab,FeatureClassProb,classPrior, "train");
-            
 
-
-
-            Dictionary<string, List<Document>> TestingDocs = ReadData(TestingDataPath, ref Docid,false,ref Vocab);
+            ClassifyandWrite(sysOutput, TrainingDocs, Vocab, FeatureClassProb, classPrior, "train");
+            Dictionary<string, List<Document>> TestingDocs = ReadData(TestingDataPath, ref Docid, false, ref Vocab);
             ClassifyandWrite(sysOutput, TestingDocs, Vocab, FeatureClassProb, classPrior, "test");
-
-
-
-
-            Console.WriteLine("done");
+            Console.WriteLine("Done");
             Console.ReadLine();
         }
-        public static void ClassifyandWrite (string sysOutput, Dictionary<string, List<Document>> TrainingDocs,Dictionary<string, bool> Vocab,Dictionary<string, double> FeatureClassProb,Dictionary<string, double> classPrior, string testOrTrain)
+        public static void ClassifyandWrite (string sysOutput, Dictionary<string, List<Document>> TrainingDocs, Dictionary<string, bool> Vocab, Dictionary<string, double> FeatureClassProb, Dictionary<string, double> classPrior, string testOrTrain)
         {
             StreamWriter Sw1 = new StreamWriter(sysOutput);
             string featureClass;
@@ -94,9 +95,7 @@ namespace Bayes
                         {
                             featureClass = genClass + "_" + word.Key;
                             if (document.WordCount.ContainsKey(word.Key))
-                                Docprob += FeatureClassProb[featureClass];
-                            else
-                                Docprob += (FeatureClassProb[featureClass + "_N"]);
+                                Docprob += (document.WordCount[word.Key] * FeatureClassProb[featureClass]);
                         }
                         Docprob += classPrior[genClass];
                         if (Docprob > maxProbClass.prob)
@@ -154,36 +153,36 @@ namespace Bayes
             int value, index;
             Dictionary<string, List<Document>> TrainingClassDict = new Dictionary<string, List<Document>>();
 
-	        using(StreamReader Sr = new StreamReader(TrainingDataPath))
-		        {
-			        while((line = Sr.ReadLine())!=null)
-			        {
-				        if (String.IsNullOrWhiteSpace(line))
-					        continue;
-				        string[] words = line.Split(new string[] { " " }, StringSplitOptions.RemoveEmptyEntries);
-				        Document temp = new Document(Docid++);
-				        for (int i = 1; i < words.Length; i++)
-				        {
-					        index = words[i].IndexOf(":");
-					        key = words[i].Substring(0,index );
-					        value = Convert.ToInt32(words[i].Substring(index + 1));
-					        if (temp.WordCount.ContainsKey(key))
-						        temp.WordCount[key] += value;
-					        else
-						        temp.WordCount.Add(key, value);
-                            if(training)
-                            {
-                                if (!Vocab.ContainsKey(key))
-                                    Vocab.Add(key, true);
-                            }
-				        }
-                        if (TrainingClassDict.ContainsKey(words[0]))
-                            TrainingClassDict[words[0]].Add(temp);
+            using (StreamReader Sr = new StreamReader(TrainingDataPath))
+            {
+                while ((line = Sr.ReadLine()) != null)
+                {
+                    if (String.IsNullOrWhiteSpace(line))
+                        continue;
+                    string[] words = line.Split(new string[] { " " }, StringSplitOptions.RemoveEmptyEntries);
+                    Document temp = new Document(Docid++);
+                    for (int i = 1; i < words.Length; i++)
+                    {
+                        index = words[i].IndexOf(":");
+                        key = words[i].Substring(0, index);
+                        value = Convert.ToInt32(words[i].Substring(index + 1));
+                        if (temp.WordCount.ContainsKey(key))
+                            temp.WordCount[key] += value;
                         else
-                            TrainingClassDict.Add(words[0], new List<Document>() { temp });
-                            
-			        }
-		        }
+                            temp.WordCount.Add(key, value);
+                        if (training)
+                        {
+                            if (!Vocab.ContainsKey(key))
+                                Vocab.Add(key, true);
+                        }
+                    }
+                    if (TrainingClassDict.ContainsKey(words[0]))
+                        TrainingClassDict[words[0]].Add(temp);
+                    else
+                        TrainingClassDict.Add(words[0], new List<Document>() { temp });
+
+                }
+            }
             return TrainingClassDict;
         }
     }
