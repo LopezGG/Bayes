@@ -13,10 +13,18 @@ namespace Bayes
         {
             string TrainingDataPath = args[0];
             string TestingDataPath = args[1];
-            double classPriorDelta = Convert.ToDouble(args[2]);
+            double classPriorLogDelta = Convert.ToDouble(args[2]);
             double condProbDelta = Convert.ToDouble(args[3]);
             string modelFile = args[4];
             string sysOutput = args[5];
+            if (File.Exists(modelFile))
+            {
+                File.Delete(modelFile);
+            }
+            if (File.Exists(sysOutput))
+            {
+                File.Delete(sysOutput);
+            }
             int Docid = 0;
             Dictionary<string, bool> Vocab = new Dictionary<string, bool>();
             //read docs
@@ -25,7 +33,10 @@ namespace Bayes
             double DocsPerClass = 0;
             string featureClass;
             double prob = 0;
+            Dictionary<string, double> classPriorLog = new Dictionary<string, double>();
             Dictionary<string, double> classPrior = new Dictionary<string, double>();
+            Dictionary<string, double> FeatureClassProbLog = new Dictionary<string, double>();
+            Dictionary<string, double> FeatureClassProbNLog = new Dictionary<string, double>();
             Dictionary<string, double> FeatureClassProb = new Dictionary<string, double>();
             int totalClass =TrainingDocs.Count;
             //calculating Priors
@@ -33,7 +44,8 @@ namespace Bayes
             {
                 DocsPerClass = classLabel.Value.Count;
                 //calculate Prior
-                prob = System.Math.Log10((DocsPerClass + classPriorDelta) / (totalTrainingDocs + (classPriorDelta * totalClass)));
+                prob = ((DocsPerClass + classPriorLogDelta) / (totalTrainingDocs + (classPriorLogDelta * totalClass)));
+                classPriorLog.Add(classLabel.Key, System.Math.Log10(prob));
                 classPrior.Add(classLabel.Key, prob);
                 foreach (var word in Vocab)
                 {
@@ -46,37 +58,58 @@ namespace Bayes
                     }
                     //Calculate prob of each word given a class 
                     prob = (wordcount + condProbDelta) / (DocsPerClass + (condProbDelta*2));
-                    double probN = ((DocsPerClass-wordcount) + condProbDelta) / (DocsPerClass + (condProbDelta * 2));
+                    double probN = (1-prob);
                     double logProb = System.Math.Log10(prob);
                     double logProbN = System.Math.Log10(probN);
-                    FeatureClassProb.Add(featureClass, logProb);
-                    FeatureClassProb.Add(featureClass + "_N" , logProbN);
+                    FeatureClassProbLog.Add(featureClass, logProb);
+                    FeatureClassProbNLog.Add(featureClass, logProbN);
+                    FeatureClassProb.Add(featureClass, prob);
+
                 }
                 
             }
+            string classlabel, featureValue;
+            using (StreamWriter Sw = new StreamWriter(modelFile))
+            {
+                Sw.WriteLine("%%%%% prior prob P(c) %%%%%");
+                foreach (var classGroup in classPriorLog)
+                {
+                    Sw.WriteLine(classGroup.Key + "\t" + classPrior[classGroup.Key]+"\t"+classGroup.Value);
+                }
+                Sw.WriteLine("%%%%% conditional prob P(f|c) %%%%%");
+                Sw.WriteLine("%%%%% conditional prob P(f|c) c=talk.politics.guns %%%%%");
+
+                foreach (var feature in FeatureClassProbLog)
+                {
+                    classlabel = feature.Key.Substring(0, feature.Key.IndexOf("_"));
+                    featureValue = feature.Key.Substring(feature.Key.IndexOf("_") + 1);
+                    Sw.WriteLine(featureValue+"\t"+classlabel + "\t" + FeatureClassProb[feature.Key] + "\t" + feature.Value);
+                }
+            }
+
             //Classifying training Docs
-            ClassifyandWrite (sysOutput, TrainingDocs,Vocab,FeatureClassProb,classPrior, "train");
+            ClassifyandWrite(sysOutput, TrainingDocs, Vocab, FeatureClassProbLog, FeatureClassProbNLog,classPriorLog, "train");
             
 
 
 
             Dictionary<string, List<Document>> TestingDocs = ReadData(TestingDataPath, ref Docid,false,ref Vocab);
-            ClassifyandWrite(sysOutput, TestingDocs, Vocab, FeatureClassProb, classPrior, "test");
+            ClassifyandWrite(sysOutput, TestingDocs, Vocab, FeatureClassProbLog,FeatureClassProbNLog, classPriorLog, "test");
 
 
 
 
-            Console.WriteLine("done");
-            Console.ReadLine();
+            //Console.WriteLine("done");
+            //Console.ReadLine();
         }
-        public static void ClassifyandWrite (string sysOutput, Dictionary<string, List<Document>> TrainingDocs,Dictionary<string, bool> Vocab,Dictionary<string, double> FeatureClassProb,Dictionary<string, double> classPrior, string testOrTrain)
+        public static void ClassifyandWrite (string sysOutput, Dictionary<string, List<Document>> TrainingDocs, Dictionary<string, bool> Vocab, Dictionary<string, double> FeatureClassProbLog, Dictionary<string, double> FeatureClassProbNLog, Dictionary<string, double> classPriorLog, string testOrTrain)
         {
-            StreamWriter Sw1 = new StreamWriter(sysOutput);
+            StreamWriter Sw1 = new StreamWriter(sysOutput, true);
+            Sw1.WriteLine("%%%%% " + testOrTrain + " data:");
             string featureClass;
             Dictionary<String, int> ConfusionDict = new Dictionary<string, int>();
             string st1, st2;
             var UniqueClasses = TrainingDocs.Keys.ToList();
-            Dictionary<int, List<ProbClass>> DocClassProb = new Dictionary<int, List<ProbClass>>();
             string ConfusionDictKey;
             double totalDoc = 0;
             foreach (var classGroup in TrainingDocs)
@@ -84,8 +117,8 @@ namespace Bayes
 
                 foreach (var document in classGroup.Value)
                 {
-                    totalDoc++;
-                    ProbClass maxProbClass = new ProbClass();
+                    
+                    Dictionary<string,double> ClassProbDoc = new Dictionary<string,double>();
                     foreach (var genClass in UniqueClasses)
                     {
                         double Docprob = 0;
@@ -94,27 +127,27 @@ namespace Bayes
                         {
                             featureClass = genClass + "_" + word.Key;
                             if (document.WordCount.ContainsKey(word.Key))
-                                Docprob += FeatureClassProb[featureClass];
+                                Docprob += FeatureClassProbLog[featureClass];
                             else
-                                Docprob += (FeatureClassProb[featureClass + "_N"]);
+                                Docprob += (FeatureClassProbNLog[featureClass]);
                         }
-                        Docprob += classPrior[genClass];
-                        if (Docprob > maxProbClass.prob)
-                        {
-                            maxProbClass.classLabel = genClass;
-                            maxProbClass.prob = Docprob;
-                        }
-                        ProbClass temp = new ProbClass(genClass, Docprob);
-                        if (DocClassProb.ContainsKey(document.Doc_id))
-                            DocClassProb[document.Doc_id].Add(temp);
-                        else
-                            DocClassProb.Add(document.Doc_id, new List<ProbClass>() { temp });
+                        Docprob += classPriorLog[genClass];
+                        ClassProbDoc.Add(genClass,Docprob);
+
                     }
-                    ConfusionDictKey = classGroup.Key + "_" + maxProbClass.classLabel;
+                    var orderedDict = ClassProbDoc.OrderByDescending(x => x.Value).ToDictionary(x => x.Key, x => x.Value);
+                    ConfusionDictKey = classGroup.Key + "_" + orderedDict.First().Key;
                     if (ConfusionDict.ContainsKey(ConfusionDictKey))
                         ConfusionDict[ConfusionDictKey]++;
                     else
                         ConfusionDict.Add(ConfusionDictKey, 1);
+                    Sw1.Write("array:"+totalDoc+"\t");
+                    totalDoc++;
+                    foreach (var item in orderedDict)
+                    {
+                        Sw1.Write(item.Key + "\t" + System.Math.Pow(10, item.Value) + "\t");
+                    }
+                    Sw1.WriteLine();
                 }
             }
             int correctPred = 0;
